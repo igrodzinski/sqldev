@@ -1,0 +1,4 @@
+{
+  "pracownicy.xlsx": "SELECT * FROM DUAL",
+  "departamenty.xlsx": "SELECT deptno, dname FROM dept"
+}
