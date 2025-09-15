@@ -1,0 +1,92 @@
+def get_column_stats(schema, table_name, column_name):
+    conn = cx_Oracle.connect(USERNAME, PASSWORD, DSN)
+    cur = conn.cursor()
+
+    # 1. Sprawdzenie czy tabela istnieje
+    cur.execute("""
+        SELECT COUNT(*) 
+        FROM all_tables 
+        WHERE owner = :schema 
+          AND table_name = :table_name
+    """, schema=schema.upper(), table_name=table_name.upper())
+    table_exists = cur.fetchone()[0]
+
+    if table_exists == 0:
+        print(f"⚠️ Tabela {schema}.{table_name} nie istnieje.")
+        cur.close()
+        conn.close()
+        return None
+
+    # 2. Sprawdzenie czy kolumna istnieje i pobranie typu danych
+    cur.execute("""
+        SELECT data_type
+        FROM all_tab_columns
+        WHERE owner = :schema 
+          AND table_name = :table_name
+          AND column_name = :column_name
+    """, schema=schema.upper(), table_name=table_name.upper(), column_name=column_name.upper())
+    column_info = cur.fetchone()
+
+    if not column_info:
+        print(f"⚠️ Kolumna {column_name} nie istnieje w tabeli {schema}.{table_name}.")
+        cur.close()
+        conn.close()
+        return None
+
+    data_type = column_info[0]
+
+    # 3. Statystyki kolumny
+    sql = f"""
+        SELECT 
+            COUNT(*) AS total_rows,
+            COUNT({column_name}) AS filled_rows,
+            MIN(LENGTH({column_name})) AS min_len,
+            MAX(LENGTH({column_name})) AS max_len
+        FROM {schema}.{table_name}
+    """
+    cur.execute(sql)
+    total_rows, filled_rows, min_len, max_len = cur.fetchone()
+
+    fill_rate = (filled_rows / total_rows * 100) if total_rows else 0
+
+    # 4. Najczęstsze wartości (TOP 5)
+    sql_top_values = f"""
+        SELECT {column_name}, COUNT(*) AS cnt
+        FROM {schema}.{table_name}
+        GROUP BY {column_name}
+        ORDER BY cnt DESC FETCH FIRST 5 ROWS ONLY
+    """
+    cur.execute(sql_top_values)
+    top_values = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    result = {
+        "schema": schema,
+        "table": table_name,
+        "column": column_name,
+        "data_type": data_type,
+        "total_rows": total_rows,
+        "filled_rows": filled_rows,
+        "fill_rate_percent": round(fill_rate, 2),
+        "min_length": min_len,
+        "max_length": max_len,
+        "top_values": top_values
+    }
+
+    return result
+
+
+# 🔧 Przykład użycia:
+if __name__ == "__main__":
+    schemas = ["wh", "wh_ods"]
+    table = "nazwa_tabeli"
+    column = "nazwa_kolumny"
+
+    for s in schemas:
+        stats = get_column_stats(s, table, column)
+        if stats:
+            print(f"\n📊 Statystyki dla {s}.{table}.{column}:")
+            for k, v in stats.items():
+                print(f"{k}: {v}")
